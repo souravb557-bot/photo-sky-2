@@ -1,0 +1,6 @@
+{
+  "name": "Photo Sky 2",
+  "description": "Upload and organize photos with tags, manage privacy settings, and easily share images through a secure, user-friendly platform with Google login.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

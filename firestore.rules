@@ -1,0 +1,141 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net (default-deny catch-all)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- GLOBAL REUSABLE HELPERS ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && (
+        ('email_verified' in request.auth.token && request.auth.token.email_verified == true)
+        || request.auth.token.email != null
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- SCHEMAS (Anti-Update-Gap) ---
+    function isValidUser(data) {
+      return data.keys().hasAll(['displayName', 'email', 'photoURL', 'createdAt', 'updatedAt'])
+        && (data.keys().size() == 5 || (data.keys().size() == 6 && 'uid' in data))
+        && data.displayName is string
+        && data.displayName.size() >= 1 && data.displayName.size() <= 100
+        && data.email is string
+        && data.email.size() >= 3 && data.email.size() <= 100
+        && data.photoURL is string
+        && data.photoURL.size() <= 2083
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPhoto(data) {
+      return data.keys().hasAll(['title', 'imageUrl', 'tags', 'privacy', 'ownerId', 'ownerEmail', 'sharedWith', 'createdAt', 'updatedAt'])
+        && data.keys().size() == 9
+        && data.title is string
+        && data.title.size() >= 1 && data.title.size() <= 100
+        && data.imageUrl is string
+        && data.imageUrl.size() >= 10 && data.imageUrl.size() <= 1500000
+        && data.tags is list
+        && data.tags.size() <= 10
+        && (data.tags.size() == 0 || data.tags[0] is string)
+        && data.privacy is string
+        && (data.privacy == 'public' || data.privacy == 'private' || data.privacy == 'shared')
+        && data.ownerId is string
+        && data.ownerId.size() <= 128
+        && data.ownerEmail is string
+        && data.ownerEmail.size() <= 100
+        && data.sharedWith is list
+        && data.sharedWith.size() <= 10
+        && (data.sharedWith.size() == 0 || data.sharedWith[0] is string)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // --- COLLECTIONS MATCH BLOCKS ---
+
+    // USERS COLLECTION
+    match /users/{userId} {
+      allow get: if isSignedIn() && (request.auth.uid == userId);
+      
+      // Block collection listing to protect user privacy (PII Protection)
+      allow list: if false;
+
+      allow create: if isEmailVerified()
+        && isValidId(userId)
+        && request.auth.uid == userId
+        && isValidUser(incoming())
+        && incoming().createdAt <= request.time + duration.value(15, 'm')
+        && incoming().updatedAt <= request.time + duration.value(15, 'm');
+
+      allow update: if isEmailVerified()
+        && isValidId(userId)
+        && request.auth.uid == userId
+        && isValidUser(incoming())
+        && incoming().createdAt == existing().createdAt  // Immutable field
+        && incoming().updatedAt <= request.time + duration.value(15, 'm')
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt', 'uid']);
+
+      allow delete: if false; // Profiles are permanent for secure relational references
+    }
+
+    // PHOTOS COLLECTION
+    match /photos/{photoId} {
+      // Secure listing queries - enforces check against resource fields (Pillar 8)
+      allow list: if (
+        resource.data.privacy == 'public'
+        || (request.auth != null && resource.data.ownerId == request.auth.uid)
+        || (request.auth != null && 'email' in request.auth.token && resource.data.privacy == 'shared' && 'sharedWith' in resource.data && request.auth.token.email in resource.data.sharedWith)
+      );
+
+      allow get: if (
+        resource.data.privacy == 'public'
+        || (request.auth != null && resource.data.ownerId == request.auth.uid)
+        || (request.auth != null && 'email' in request.auth.token && resource.data.privacy == 'shared' && 'sharedWith' in resource.data && request.auth.token.email in resource.data.sharedWith)
+      );
+
+      allow create: if isEmailVerified()
+        && isValidId(photoId)
+        && incoming().ownerId == request.auth.uid
+        && incoming().ownerEmail == request.auth.token.email
+        && isValidPhoto(incoming())
+        && incoming().createdAt <= request.time + duration.value(15, 'm')
+        && incoming().updatedAt <= request.time + duration.value(15, 'm');
+
+      allow update: if isEmailVerified()
+        && isValidId(photoId)
+        && existing().ownerId == request.auth.uid
+        && incoming().ownerId == existing().ownerId // Immutable integrity
+        && incoming().ownerEmail == existing().ownerEmail // Immutable integrity
+        && incoming().imageUrl == existing().imageUrl // Image is immortal. Cannot change photo binary, must recreate
+        && incoming().createdAt == existing().createdAt // Immutable timestamp
+        && isValidPhoto(incoming())
+        && incoming().updatedAt <= request.time + duration.value(15, 'm')
+        // Action-based transitions using hasOnly
+        && (
+          // Action 1: Modify Metadata (Title, Tags, Privacy configuration)
+          incoming().diff(existing()).affectedKeys().hasOnly(['title', 'tags', 'privacy', 'sharedWith', 'updatedAt'])
+        );
+
+      allow delete: if isEmailVerified()
+        && isValidId(photoId)
+        && existing().ownerId == request.auth.uid;
+    }
+  }
+}

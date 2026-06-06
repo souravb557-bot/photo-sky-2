@@ -1,0 +1,45 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile containing identity information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "The user's UID" },
+        "displayName": { "type": "string", "description": "The user's display name" },
+        "email": { "type": "string", "format": "email", "description": "The user's email address" },
+        "photoURL": { "type": "string", "description": "The user's photo" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Update timestamp" }
+      },
+      "required": ["displayName", "email", "createdAt", "updatedAt"]
+    },
+    "Photo": {
+      "title": "Photo",
+      "description": "A photo uploaded and organized with tags and privacy settings",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "description": "The title of the photo" },
+        "imageUrl": { "type": "string", "description": "The image file source, typically compressed base64 or a mock url" },
+        "tags": { "type": "array", "description": "Interactive tags for indexing and organization" },
+        "privacy": { "type": "string", "enum": ["public", "private", "shared"], "description": "Privacy permission setting" },
+        "ownerId": { "type": "string", "description": "UID of the owner" },
+        "ownerEmail": { "type": "string", "description": "Email address of the owner" },
+        "sharedWith": { "type": "array", "description": "Allowed user email addresses when privacy is 'shared'" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Update timestamp" }
+      },
+      "required": ["title", "imageUrl", "tags", "privacy", "ownerId", "ownerEmail", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "The collection storing registered user profiles"
+    },
+    "/photos/{photoId}": {
+      "schema": "Photo",
+      "description": "The collection holding all user photo entries"
+    }
+  }
+}
