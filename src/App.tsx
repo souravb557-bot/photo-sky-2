@@ -11,7 +11,7 @@ import {
   Image as ImageIcon, Cloud, CloudRain, Shield, Search, Plus, Globe, Lock, 
   Users, Key, LogOut, Info, AlertTriangle, CheckCircle2, SlidersHorizontal, 
   Sparkles, ExternalLink, RefreshCw, X, MoreVertical, Share2, Download, Unlock,
-  CheckSquare, Square
+  CheckSquare, Square, Facebook, Instagram, MessageCircle, Star
 } from "lucide-react";
 
 import { db, auth, googleProvider, handleFirestoreError } from "./lib/firebase";
@@ -49,7 +49,7 @@ export default function App() {
 
   // Filter conditions
   const [searchQuery, setSearchQuery] = useState("");
-  const [activePrivacyFilter, setActivePrivacyFilter] = useState<"all" | "public" | "private" | "shared">("all");
+  const [activePrivacyFilter, setActivePrivacyFilter] = useState<"all" | "public" | "private" | "shared" | "favorites">("all");
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
 
   // Image Upload form states
@@ -70,6 +70,7 @@ export default function App() {
   // Active three-dot menu dropdown card tracking state
   const [activeMenuPhotoId, setActiveMenuPhotoId] = useState<string | null>(null);
   const [menuCopiedPhotoId, setMenuCopiedPhotoId] = useState<string | null>(null);
+  const [instagramShareCopiedId, setInstagramShareCopiedId] = useState<string | null>(null);
 
   // Multi-selection states
   const [selectedPhotoIds, setSelectedPhotoIds] = useState<string[]>([]);
@@ -351,6 +352,7 @@ export default function App() {
     if (activePrivacyFilter === "public" && photo.privacy !== "public") return false;
     if (activePrivacyFilter === "private" && (photo.privacy !== "private" || photo.ownerId !== authedUser?.uid)) return false;
     if (activePrivacyFilter === "shared" && (photo.privacy !== "shared" || (photo.ownerId !== authedUser?.uid && !photo.sharedWith.includes(authedUser?.email?.toLowerCase())))) return false;
+    if (activePrivacyFilter === "favorites" && !photo.isFavorite) return false;
 
     // 3. Selected Tag trigger
     if (selectedTag && (!photo.tags || !photo.tags.includes(selectedTag))) return false;
@@ -375,6 +377,12 @@ export default function App() {
       } else if (err?.code === "auth/cancelled-popup-request") {
         setAuthError("Sign-in request was cancelled. Please wait a moment and try again.");
         console.warn("Multiple popups loaded/cancelled.");
+      } else if (err?.code === "auth/unauthorized-domain" || err?.message?.includes("auth/unauthorized-domain")) {
+        const currentDomain = window.location.hostname;
+        setAuthError(
+          `This domain (${currentDomain}) is not whitelisted. Please add it to your Firebase Console under 'Authentication > Settings > Authorized Domains'.`
+        );
+        console.error("Unauthorized domain: ", currentDomain);
       } else {
         setAuthError(
           isInIframe && (err?.message?.includes("cookie") || err?.message?.includes("iframe") || err?.message?.includes("storage"))
@@ -541,6 +549,20 @@ export default function App() {
   };
 
   // Three-Dot Menu Action Handlers
+  const handleToggleFavorite = async (photo: Photo, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const docRef = doc(db, "photos", photo.id);
+      await updateDoc(docRef, {
+        isFavorite: !(photo.isFavorite ?? false),
+        updatedAt: serverTimestamp()
+      });
+    } catch (err: any) {
+      console.error("Error toggling favorite:", err);
+      handleFirestoreError(err, OperationType.UPDATE, `photos/${photo.id}`);
+    }
+  };
+
   const toggleMenu = (photoId: string, e: React.MouseEvent) => {
     e.stopPropagation(); // Stop opening Lightbox spotlight modal
     setActiveMenuPhotoId((prev) => (prev === photoId ? null : photoId));
@@ -794,6 +816,18 @@ export default function App() {
                 >
                   <Users className="w-4 h-4 shrink-0" />
                   <span>Shared View</span>
+                </button>
+                <button
+                  onClick={() => { setActivePrivacyFilter("favorites"); setSelectedTag(null); }}
+                  className={`w-full flex items-center gap-3.5 p-3.5 rounded-2xl text-xs font-extrabold uppercase tracking-widest transition-all duration-150 ${
+                    activePrivacyFilter === "favorites"
+                      ? "bg-indigo-50 text-indigo-700 font-extrabold"
+                      : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
+                  }`}
+                  id="tab-favorites"
+                >
+                  <Star className="w-4 h-4 shrink-0 text-amber-500 fill-amber-400" />
+                  <span>Favorites</span>
                 </button>
               </>
             )}
@@ -1430,6 +1464,18 @@ export default function App() {
                         <Users className="w-3.5 h-3.5 shrink-0" />
                         <span>Shared Gallery</span>
                       </button>
+                      <button
+                        onClick={() => { setActivePrivacyFilter("favorites"); setSelectedTag(null); }}
+                        className={`px-3.5 py-2 text-xs font-bold rounded-xl flex items-center space-x-1.5 transition-colors ${
+                          activePrivacyFilter === "favorites"
+                            ? "bg-indigo-600 text-white"
+                            : "bg-slate-55 text-slate-500 hover:text-slate-900 border border-slate-200"
+                        }`}
+                        id="tab-favorites-mobile"
+                      >
+                        <Star className="w-3.5 h-3.5 shrink-0 text-amber-500 fill-amber-500" />
+                        <span>Favorites</span>
+                      </button>
                     </>
                   )}
                 </div>
@@ -1580,7 +1626,34 @@ export default function App() {
                             </div>
 
                             {/* Three-Dot Floating Dropdown Menu */}
-                            <div className="relative shrink-0 z-30">
+                            <div className="relative shrink-0 z-30 flex items-center space-x-1">
+                              {/* Favorite Toggle Button */}
+                              {isUserOwner ? (
+                                <button
+                                  onClick={(e) => handleToggleFavorite(photo, e)}
+                                  className="p-1 hover:bg-slate-50 rounded-xl transition-all cursor-pointer flex items-center justify-center p-1.5"
+                                  title={photo.isFavorite ? "Remove from Favorites" : "Add to Favorites"}
+                                  id={`favorite-btn-${photo.id}`}
+                                >
+                                  <Star
+                                    className={`w-3.5 h-3.5 transition-transform duration-150 ${
+                                      photo.isFavorite
+                                        ? "text-amber-400 fill-amber-400 stroke-amber-500 scale-110"
+                                        : "text-slate-300 hover:text-amber-400"
+                                    }`}
+                                  />
+                                </button>
+                              ) : (
+                                photo.isFavorite ? (
+                                  <div
+                                    className="p-1 flex items-center justify-center p-1.5"
+                                    title="Starred / Favorite Photo"
+                                  >
+                                    <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400 stroke-amber-500" />
+                                  </div>
+                                ) : null
+                              )}
+
                               <button
                                 onClick={(e) => toggleMenu(photo.id, e)}
                                 className="p-1 px-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition-all cursor-pointer"
@@ -1597,45 +1670,106 @@ export default function App() {
                                     animate={{ opacity: 1, scale: 1, y: 0 }}
                                     exit={{ opacity: 0, scale: 0.95, y: -4 }}
                                     transition={{ duration: 0.15 }}
-                                    className="absolute right-0 mt-1 w-44 bg-white border border-slate-250 rounded-2xl shadow-lg p-1.5 py-2 flex flex-col gap-1 z-50 text-[11px] font-sans text-slate-700 pointer-events-auto"
+                                    className="absolute right-0 mt-1 w-52 bg-white border border-slate-250 rounded-2xl shadow-xl p-1.5 py-2 flex flex-col gap-1 z-50 text-[11px] font-sans text-slate-700 pointer-events-auto"
                                     onClick={(e) => e.stopPropagation()}
                                   >
-                                    {/* Action 1: Lock (Private) */}
-                                    {isUserOwner ? (
-                                      photo.privacy !== "private" ? (
-                                        <button
-                                          onClick={(e) => handleMenuLock(photo, e)}
-                                          className="w-full text-left px-2.5 py-1.5 hover:bg-rose-50 hover:text-rose-600 rounded-xl flex items-center space-x-2 transition-all cursor-pointer font-bold"
-                                        >
-                                          <Lock className="w-3.5 h-3.5 text-rose-500 shrink-0" />
-                                          <span>Lock (Private)</span>
-                                        </button>
-                                      ) : null
-                                    ) : null}
+                                    {/* Owner Actions */}
+                                    {isUserOwner && (
+                                      <>
+                                        {photo.privacy !== "private" && (
+                                          <button
+                                            onClick={(e) => handleMenuLock(photo, e)}
+                                            className="w-full text-left px-2.5 py-1.5 hover:bg-rose-50 hover:text-rose-600 rounded-xl flex items-center space-x-2 transition-all cursor-pointer font-bold"
+                                          >
+                                            <Lock className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                                            <span>Lock (Private)</span>
+                                          </button>
+                                        )}
+                                        {photo.privacy !== "public" && (
+                                          <button
+                                            onClick={(e) => handleMenuUnlock(photo, e)}
+                                            className="w-full text-left px-2.5 py-1.5 hover:bg-emerald-50 hover:text-emerald-700 rounded-xl flex items-center space-x-2 transition-all cursor-pointer font-bold"
+                                          >
+                                            <Unlock className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                                            <span>Unlock (Public)</span>
+                                          </button>
+                                        )}
+                                        <div className="border-t border-slate-100 my-1"></div>
+                                      </>
+                                    )}
 
-                                    {/* Action 2: Unlock (Public) */}
-                                    {isUserOwner ? (
-                                      photo.privacy !== "public" ? (
-                                        <button
-                                          onClick={(e) => handleMenuUnlock(photo, e)}
-                                          className="w-full text-left px-2.5 py-1.5 hover:bg-emerald-50 hover:text-emerald-700 rounded-xl flex items-center space-x-2 transition-all cursor-pointer font-bold"
-                                        >
-                                          <Unlock className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                                          <span>Unlock (Public)</span>
-                                        </button>
-                                      ) : null
-                                    ) : null}
-
-                                    {/* Action 3: Share Link */}
+                                    {/* Action 3: General Share Link */}
                                     <button
                                       onClick={(e) => handleMenuShare(photo, e)}
                                       className="w-full text-left px-2.5 py-1.5 hover:bg-indigo-50 hover:text-indigo-650 rounded-xl flex items-center space-x-2 transition-all cursor-pointer font-bold"
                                     >
                                       <Share2 className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                                       <span>
-                                        {menuCopiedPhotoId === photo.id ? "✓ Link Copied" : "Share Link"}
+                                        {menuCopiedPhotoId === photo.id ? "✓ Link Copied" : "Copy Share Link"}
                                       </span>
                                     </button>
+
+                                    {/* Social Share section */}
+                                    <div className="border-t border-slate-100 my-1"></div>
+                                    <span className="px-2.5 py-0.5 text-[9px] font-black text-slate-400 uppercase tracking-widest block">
+                                      Share to Socials
+                                    </span>
+
+                                    {/* WhatsApp */}
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const shareUrl = `${window.location.origin}?photoId=${photo.id}`;
+                                        const shareText = `Check out this amazing photo "${photo.title}" on PHOTO SKY! 📸✨\n${shareUrl}`;
+                                        window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(shareText)}`, '_blank');
+                                        setActiveMenuPhotoId(null);
+                                      }}
+                                      className="w-full text-left px-2.5 py-1.5 hover:bg-emerald-50 hover:text-emerald-700 rounded-xl flex items-center space-x-2 transition-all cursor-pointer font-semibold"
+                                      title="Share via WhatsApp"
+                                    >
+                                      <MessageCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                                      <span>WhatsApp</span>
+                                    </button>
+
+                                    {/* Facebook */}
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const shareUrl = `${window.location.origin}?photoId=${photo.id}`;
+                                        window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`, '_blank');
+                                        setActiveMenuPhotoId(null);
+                                      }}
+                                      className="w-full text-left px-2.5 py-1.5 hover:bg-blue-50 hover:text-blue-700 rounded-xl flex items-center space-x-2 transition-all cursor-pointer font-semibold"
+                                      title="Share on Facebook"
+                                    >
+                                      <Facebook className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                                      <span>Facebook</span>
+                                    </button>
+
+                                    {/* Instagram */}
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const shareUrl = `${window.location.origin}?photoId=${photo.id}`;
+                                        navigator.clipboard.writeText(shareUrl).then(() => {
+                                          setInstagramShareCopiedId(photo.id);
+                                          setTimeout(() => {
+                                            setInstagramShareCopiedId(null);
+                                            setActiveMenuPhotoId(null);
+                                            window.open("https://instagram.com", "_blank");
+                                          }, 1500);
+                                        });
+                                      }}
+                                      className="w-full text-left px-2.5 py-1.5 hover:bg-pink-50 hover:text-pink-700 rounded-xl flex items-center space-x-2 transition-all cursor-pointer font-semibold"
+                                      title="Copy link & open Instagram"
+                                    >
+                                      <Instagram className="w-3.5 h-3.5 text-pink-500 shrink-0" />
+                                      <span>
+                                        {instagramShareCopiedId === photo.id ? "✓ Link Copied! Opening..." : "Instagram"}
+                                      </span>
+                                    </button>
+
+                                    <div className="border-t border-slate-100 my-1"></div>
 
                                     {/* Action 4: Download */}
                                     <button

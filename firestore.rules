@@ -47,7 +47,7 @@ service cloud.firestore {
 
     function isValidPhoto(data) {
       return data.keys().hasAll(['title', 'imageUrl', 'tags', 'privacy', 'ownerId', 'ownerEmail', 'sharedWith', 'createdAt', 'updatedAt'])
-        && data.keys().size() == 9
+        && (data.keys().size() == 9 || (data.keys().size() == 10 && 'isFavorite' in data))
         && data.title is string
         && data.title.size() >= 1 && data.title.size() <= 100
         && data.imageUrl is string
@@ -65,7 +65,8 @@ service cloud.firestore {
         && data.sharedWith.size() <= 10
         && (data.sharedWith.size() == 0 || data.sharedWith[0] is string)
         && data.createdAt is timestamp
-        && data.updatedAt is timestamp;
+        && data.updatedAt is timestamp
+        && (!('isFavorite' in data) || data.isFavorite is bool);
     }
 
     // --- COLLECTIONS MATCH BLOCKS ---
@@ -129,8 +130,8 @@ service cloud.firestore {
         && incoming().updatedAt <= request.time + duration.value(15, 'm')
         // Action-based transitions using hasOnly
         && (
-          // Action 1: Modify Metadata (Title, Tags, Privacy configuration)
-          incoming().diff(existing()).affectedKeys().hasOnly(['title', 'tags', 'privacy', 'sharedWith', 'updatedAt'])
+          // Action 1: Modify Metadata (Title, Tags, Privacy configuration, Favorites)
+          incoming().diff(existing()).affectedKeys().hasOnly(['title', 'tags', 'privacy', 'sharedWith', 'updatedAt', 'isFavorite'])
         );
 
       allow delete: if isEmailVerified()

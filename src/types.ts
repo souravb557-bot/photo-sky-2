@@ -18,6 +18,7 @@ export interface Photo {
   sharedWith: string[]; // List of emails
   createdAt: any; // Firestore Timestamp
   updatedAt: any;
+  isFavorite?: boolean;
 }
 
 export enum OperationType {
